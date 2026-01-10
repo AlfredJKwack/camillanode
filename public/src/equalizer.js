@@ -1,5 +1,20 @@
+// ES Module imports
+import plot, { initInteraction, drawOverlay, setSelectedNode, updateNodeIndex } from './eqplot.js';
+import filter from './filter.js';
 
-document.loading=false;        
+// Module-scope variables
+let DSP;
+
+document.loading=false;
+
+// Interactive graph state
+let interactiveGraphState = {
+    selectedFilterName: null,
+    hoveredFilterName: null,
+    isInteracting: false,
+    updatePending: false,
+    updateTimer: null
+};
         
 // Run equalizerOnLoad function after DSP is connected.
 let interval;
@@ -100,10 +115,13 @@ async function equalizerOnLoad() {
     await loadFiltersFromConfig();   
 
     // Plot the config
-    plotConfig();              
+    plotConfig();
+    
+    // Initialize interactive graph
+    initializeInteractiveGraph();
 
     // change loading to false after 50ms to avoud update running multiple times during loading.            
-    setInterval(function(){document.loading=false},50);            
+    setInterval(function(){document.loading=false},50);
 
     const spec = document.getElementById("spectrum");   
 
@@ -266,7 +284,13 @@ function plotConfig() {
         let color = hslToRgb(hue, 0.3, 0.3);
         let colorNum = (color[0]+color[1]*255+color[2]*255*255);
         plot(DSP.config.filters,canvas,DSP.config.title,colorNum);            
-    }    
+    }
+    
+    // Update interactive nodes and overlay after plotting
+    if (!interactiveGraphState.isInteracting) {
+        updateGraphNodeIndex();
+        redrawGraphOverlay();
+    }
 }
 
 function setPreamp(gain) {    
@@ -409,13 +433,13 @@ async function initSpectrum(parentWindow){
 
     let bar,box;
     spec.innerHTML='';
-    for (i=0;i<=barCount;i++){
+    for (let i=0;i<=barCount;i++){
         bar = document.createElement("div");
         bar.className='levelbar';        
         bar.setAttribute('freq',freq[i]);        
         
         let hue=parseInt(window.document.documentElement.style.getPropertyValue('--bck-hue'));
-        for (j=1;j<boxCount;j++) {
+        for (let j=1;j<boxCount;j++) {
             box = document.createElement('div');
             box.className='levelbox';                    
             hue=hue-(240/boxCount);
@@ -513,6 +537,253 @@ async function convertConfigs() {
         })
         
     }
+}
+
+// ========== INTERACTIVE GRAPH FUNCTIONS ==========
+
+function initializeInteractiveGraph() {
+    console.debug("Setting up interactive EQ graph");
+    
+    const canvas = document.getElementById("plotCanvas");
+    if (!canvas) {
+        console.error("Canvas not found for interactive graph");
+        return;
+    }
+    
+    console.debug("Interactive functions imported successfully from eqplot module");
+    
+    // Initialize interaction with handlers
+    initInteraction(canvas, {
+        onSelect: handleGraphNodeSelect,
+        onDeselect: handleGraphNodeDeselect,
+        onDrag: handleGraphNodeDrag,
+        onDragEnd: handleGraphNodeDragEnd,
+        onHover: handleGraphNodeHover
+    });
+    
+    // Update node index after initial plot
+    updateGraphNodeIndex();
+    
+    // Draw initial overlay
+    redrawGraphOverlay();
+    
+    console.debug("Interactive EQ graph setup complete");
+}
+
+function handleGraphNodeSelect(filterName) {
+    console.debug(`Graph selected filter: ${filterName}`);
+    
+    interactiveGraphState.selectedFilterName = filterName;
+    
+    // Highlight the filter in the list
+    highlightFilterInList(filterName);
+    
+    // Dispatch custom event for other components
+    document.dispatchEvent(new CustomEvent('filterSelected', { detail: { filterName } }));
+    
+    // Redraw overlay
+    redrawGraphOverlay();
+}
+
+function handleGraphNodeDeselect() {
+    console.debug("Graph deselected filter");
+    
+    interactiveGraphState.selectedFilterName = null;
+    
+    // Remove highlight from list
+    unhighlightAllFilters();
+    
+    // Redraw overlay
+    redrawGraphOverlay();
+}
+
+function handleGraphNodeDrag(filterName, newFreq, newGain, newQ) {
+    if (document.loading) return;
+    
+    // Mark as interacting to prevent conflicts
+    interactiveGraphState.isInteracting = true;
+    
+    // Round values appropriately
+    newFreq = Math.round(newFreq);
+    newGain = Math.round(newGain * 10) / 10;
+    newQ = Math.round(newQ * 100) / 100;
+    
+    console.debug(`Dragging ${filterName}: freq=${newFreq}Hz gain=${newGain}dB q=${newQ}`);
+    
+    // Update DSP config directly
+    if (DSP.config.filters[filterName]) {
+        DSP.config.filters[filterName].parameters.freq = newFreq;
+        DSP.config.filters[filterName].parameters.gain = newGain;
+        DSP.config.filters[filterName].parameters.q = newQ;
+        
+        // Update UI elements in filter list
+        updateFilterListUI(filterName, newFreq, newGain, newQ);
+        
+        // Schedule DSP upload
+        scheduleDSPUpload();
+        
+        // Redraw graph immediately for smooth feedback
+        plotConfigInteractive();
+    }
+}
+
+function handleGraphNodeDragEnd() {
+    console.debug("Graph drag ended");
+    
+    // Force final upload
+    if (interactiveGraphState.updateTimer) {
+        clearTimeout(interactiveGraphState.updateTimer);
+        interactiveGraphState.updateTimer = null;
+    }
+    
+    DSP.uploadConfig().then(() => {
+        console.debug("DSP config uploaded after drag");
+        interactiveGraphState.isInteracting = false;
+        interactiveGraphState.updatePending = false;
+    });
+}
+
+function handleGraphNodeHover(filterName) {
+    interactiveGraphState.hoveredFilterName = filterName;
+    redrawGraphOverlay();
+}
+
+function scheduleDSPUpload() {
+    // Clear existing timer
+    if (interactiveGraphState.updateTimer) {
+        clearTimeout(interactiveGraphState.updateTimer);
+    }
+    
+    interactiveGraphState.updatePending = true;
+    
+    // Upload after 40ms of no changes (matching filter pane behavior)
+    interactiveGraphState.updateTimer = setTimeout(() => {
+        if (interactiveGraphState.updatePending) {
+            DSP.uploadConfig().then(() => {
+                console.debug("DSP config uploaded during interaction");
+                interactiveGraphState.updatePending = false;
+            });
+        }
+    }, 40);
+}
+
+function updateFilterListUI(filterName, freq, gain, q) {
+    // Find the filter element in the DOM
+    const filterElement = document.getElementById(filterName);
+    if (!filterElement) return;
+    
+    // Update the input fields
+    const peqParams = filterElement.querySelector('.peqParams');
+    if (!peqParams) return;
+    
+    const inputs = peqParams.querySelectorAll('input');
+    inputs.forEach(input => {
+        const id = input.id.toLowerCase();
+        if (id === 'frequency' || id === 'freq') {
+            input.value = freq;
+        } else if (id === 'gain') {
+            input.value = gain;
+        } else if (id === 'q') {
+            input.value = q;
+        }
+    });
+}
+
+function highlightFilterInList(filterName) {
+    // Remove existing highlights
+    unhighlightAllFilters();
+    
+    // Add highlight to selected filter
+    const filterElement = document.getElementById(filterName);
+    if (filterElement) {
+        filterElement.style.outline = "2px solid #fff";
+        filterElement.style.outlineOffset = "2px";
+    }
+}
+
+function unhighlightAllFilters() {
+    const allFilters = document.querySelectorAll('.peqElement');
+    allFilters.forEach(el => {
+        el.style.outline = "";
+        el.style.outlineOffset = "";
+    });
+}
+
+function updateGraphNodeIndex() {
+    console.debug("=== updateGraphNodeIndex called ===");
+    
+    const canvas = document.getElementById("plotCanvas");
+    if (!canvas) {
+        console.error("Canvas not found in updateGraphNodeIndex");
+        return;
+    }
+    
+    console.debug(`Canvas: ${canvas.width}x${canvas.height}, rect:`, canvas.getBoundingClientRect());
+    
+    if (!updateNodeIndex) {
+        console.error("updateNodeIndex function not available");
+        return;
+    }
+    
+    // Get color based on current mode
+    let color;
+    if (window.parent.activeSettings.peqDualChannel) {
+        color = "#B55"; // Use first channel color for node index
+        console.debug("Dual channel mode, using color:", color);
+    } else {
+        let hue = (Math.abs((parseInt(window.parent.activeSettings.backgroundHue) + 10)) % 360) / 360;
+        let rgb = hslToRgb(hue, 0.3, 0.3);
+        color = (rgb[0] + rgb[1] * 255 + rgb[2] * 255 * 255);
+        console.debug(`Single channel mode, hue: ${hue}, rgb: ${rgb}, color: ${color}`);
+    }
+    
+    console.debug("Calling updateNodeIndex with filters:", Object.keys(DSP.config.filters || {}));
+    updateNodeIndex(DSP.config.filters, canvas, color);
+    console.debug("updateGraphNodeIndex complete");
+}
+
+function redrawGraphOverlay() {
+    const canvas = document.getElementById("plotCanvas");
+    if (!canvas) return;
+    
+    const { drawOverlay } = window;
+    if (!drawOverlay) return;
+    
+    drawOverlay(canvas, interactiveGraphState.selectedFilterName, interactiveGraphState.hoveredFilterName);
+}
+
+function plotConfigInteractive() {
+    // Don't redraw if we're in the middle of user interaction from filter pane
+    if (document.loading) return;
+    
+    const canvas = document.getElementById("plotCanvas");
+    const context = canvas.getContext('2d');
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Plot curves
+    if (window.parent.activeSettings.peqDualChannel) {
+        let colors = ["#B55", "#55B", "#5B5", "#F33", "#33F", "#3F3"];
+        let channelCount = DSP.getChannelCount();
+        for (let channelNo = 0; channelNo < channelCount; channelNo++) {
+            let channelFilters = {};
+            let filterList = DSP.getChannelFiltersList(channelNo);
+            for (let filter of filterList) {
+                channelFilters[filter] = DSP.config.filters[filter];
+            }
+            plot(channelFilters, canvas, DSP.config.title, colors[channelNo]);
+        }
+    } else {
+        let hue = (Math.abs((parseInt(window.parent.activeSettings.backgroundHue) + 10)) % 360) / 360;
+        let color = hslToRgb(hue, 0.3, 0.3);
+        let colorNum = (color[0] + color[1] * 255 + color[2] * 255 * 255);
+        plot(DSP.config.filters, canvas, DSP.config.title, colorNum);
+    }
+    
+    // Update node positions
+    updateGraphNodeIndex();
+    
+    // Redraw overlay with nodes
+    redrawGraphOverlay();
 }
 
 const { abs, min, max, round } = Math;

@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=100vw, initial-scale=1.0">
     <link rel="stylesheet" href="css/main.css">
-    <script src="src/equalizer.js"></script>
     <title>Document</title>
 </head>
 <body>
@@ -18,11 +17,17 @@
         import plot from '/src/eqplot.js';        
         import savedConfigs from "/src/savedConfigs.js";        
         
+        // Set globals needed by equalizer.js
         window.savedConfigs = new savedConfigs();        
         window.PEQline = PEQline;
         window.camillaDSP = camillaDSP;                        
-        window.EQKnob=EQKnob;
-        window.plot = plot;               
+        window.EQKnob = EQKnob;
+        window.plot = plot;
+        window.filter = (await import('/src/filter.js')).default;
+        
+        // Load equalizer.js as module - it will import eqplot functions directly
+        await import('/src/equalizer.js');
+        console.debug("Equalizer module loaded");
     </script>
 
     <input type="button" onclick="DSP.sendDSPMessage('GetConfigJson').then(r=>console.log(r));" value="Show Config">
@@ -31,7 +36,6 @@
 
     <div id="spectrum" class="group">
     </div>
-    <script src="src/eqplot.js"></script>
     <canvas id="plotCanvas" width="1024" height="500"></canvas>
     
     <div class="group" id="basicControls" label="Basic Controls"></div> 

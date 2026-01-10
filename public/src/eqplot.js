@@ -5,7 +5,22 @@ const QUADLEN = 2048;
 const textMargin=40;
 const leftMargin=35;
 
-const verticalDBRange= 30;      
+const verticalDBRange= 30;
+
+// Interactive state
+let interactionState = {
+	nodes: [],
+	selectedNode: null,
+	hoveredNode: null,
+	isDragging: false,
+	dragStart: null,
+	modifierActive: false,
+	canvas: null,
+	filterObject: null,
+	handlers: {},
+	debugMode: true, // Enable debug logging and visual overlay
+	lastLogTime: 0 // For throttling logs
+};
 
 function calculateFilterDataMatrix(type, freq, gain, qfact) {	
 	let sampleRate=40000;
@@ -364,4 +379,512 @@ function colorChange(startColor,colorIndex) {
 	
 }
 
+// ========== COORDINATE TRANSFORM FUNCTIONS ==========
+
+// Frequency to X coordinate (log scale)
+function freqToX(freq, canvas) {
+	const width = canvas.width - textMargin;
+	// Using log scale: normalize frequency between 20Hz and 20000Hz
+	const minFreq = 20;
+	const maxFreq = 20000;
+	
+	// Clamp frequency
+	freq = Math.max(minFreq, Math.min(maxFreq, freq));
+	
+	// Log scale mapping
+	const logMin = Math.log(minFreq);
+	const logMax = Math.log(maxFreq);
+	const logFreq = Math.log(freq);
+	
+	const normalized = (logFreq - logMin) / (logMax - logMin);
+	return leftMargin + (normalized * width);
+}
+
+// X coordinate to frequency (inverse of freqToX)
+function xToFreq(x, canvas) {
+	const width = canvas.width - textMargin;
+	const minFreq = 20;
+	const maxFreq = 20000;
+	
+	// Normalize x position
+	const normalized = Math.max(0, Math.min(1, (x - leftMargin) / width));
+	
+	// Inverse log scale
+	const logMin = Math.log(minFreq);
+	const logMax = Math.log(maxFreq);
+	const logFreq = logMin + normalized * (logMax - logMin);
+	
+	const freq = Math.exp(logFreq);
+	return Math.max(minFreq, Math.min(maxFreq, freq));
+}
+
+// Gain (dB) to Y coordinate
+function dbToY(db, canvas) {
+	const height = canvas.height - textMargin;
+	const ch = canvas.height / 2;
+	const heightScale = 16.5;
+	
+	return ch - (heightScale * db);
+}
+
+// Y coordinate to gain (dB)
+function yToDb(y, canvas) {
+	const ch = canvas.height / 2;
+	const heightScale = 16.5;
+	
+	const db = (ch - y) / heightScale;
+	
+	// Clamp to reasonable range
+	return Math.max(-24, Math.min(24, db));
+}
+
+// ========== NODE INDEX & HIT TESTING ==========
+
+function buildNodeIndex(filterObject, canvas, color) {
+	console.debug(`=== buildNodeIndex called ===`);
+	console.debug(`Canvas dimensions: ${canvas.width}x${canvas.height}`);
+	console.debug(`Canvas rect:`, canvas.getBoundingClientRect());
+	console.debug(`Color:`, color);
+	console.debug(`Filter object keys:`, Object.keys(filterObject || {}));
+	
+	const nodes = [];
+	
+	if (!filterObject) {
+		console.debug("No filterObject provided");
+		return nodes;
+	}
+	
+	let filterNum = 0;
+	for (let filterName of Object.keys(filterObject)) {
+		const filter = filterObject[filterName];
+		
+		console.debug(`Checking filter: ${filterName}, type: ${filter.type}`);
+		
+		// Only index Biquad filters with Peaking, Highshelf, or Lowshelf types
+		if (filter.type !== "Biquad") continue;
+		const subType = filter.parameters.type;
+		if (subType !== "Peaking" && subType !== "Highshelf" && subType !== "Lowshelf") continue;
+		
+		const freq = filter.parameters.freq;
+		const gain = filter.parameters.gain;
+		const q = filter.parameters.q;
+		
+		const x = freqToX(freq, canvas);
+		const y = dbToY(gain, canvas);
+		
+		// Calculate node color
+		let nodeColor = colorChange(color, filterNum);
+		
+		const node = {
+			name: filterName,
+			freq: freq,
+			gain: gain,
+			q: q,
+			x: x,
+			y: y,
+			color: "#" + nodeColor,
+			type: subType
+		};
+		
+		nodes.push(node);
+		console.debug(`Added node: ${filterName} at (${x.toFixed(1)}, ${y.toFixed(1)}) - ${freq}Hz ${gain}dB Q${q}`);
+		
+		filterNum++;
+	}
+	
+	console.debug(`Built node index with ${nodes.length} nodes`);
+	if (nodes.length > 0) {
+		console.debug("Sample nodes:", nodes.slice(0, 3));
+	}
+	return nodes;
+}
+
+function hitTest(x, y, canvas) {
+	const hitRadius = 12; // Hit radius in pixels
+	const nodes = interactionState.nodes;
+	
+	// Test nodes in reverse order (last drawn = on top)
+	for (let i = nodes.length - 1; i >= 0; i--) {
+		const node = nodes[i];
+		const dx = x - node.x;
+		const dy = y - node.y;
+		const distance = Math.sqrt(dx * dx + dy * dy);
+		
+		if (distance <= hitRadius) {
+			console.debug(`Hit test: found node ${node.name} at distance ${distance.toFixed(2)}px`);
+			return node;
+		}
+	}
+	
+	return null;
+}
+
+// ========== NODE RENDERING ==========
+
+function drawNodes(canvas, selectedNodeName, hoveredNodeName) {
+	const ctx = canvas.getContext("2d");
+	const nodes = interactionState.nodes;
+	
+	nodes.forEach(node => {
+		const isSelected = node.name === selectedNodeName;
+		const isHovered = node.name === hoveredNodeName;
+		
+		// Draw node
+		ctx.beginPath();
+		ctx.arc(node.x, node.y, isSelected ? 8 : 6, 0, 2 * Math.PI);
+		
+		// Fill
+		ctx.fillStyle = node.color;
+		ctx.fill();
+		
+		// Stroke
+		if (isSelected) {
+			ctx.strokeStyle = "#FFF";
+			ctx.lineWidth = 3;
+			ctx.stroke();
+		} else if (isHovered) {
+			ctx.strokeStyle = "#FFF";
+			ctx.lineWidth = 2;
+			ctx.stroke();
+		} else {
+			ctx.strokeStyle = "#000";
+			ctx.lineWidth = 1.5;
+			ctx.stroke();
+		}
+	});
+}
+
+function drawOverlay(canvas, selectedNodeName, hoveredNodeName) {
+	console.debug(`=== drawOverlay called ===`);
+	console.debug(`Nodes count: ${interactionState.nodes.length}`);
+	console.debug(`Selected: ${selectedNodeName}, Hovered: ${hoveredNodeName}`);
+	
+	drawNodes(canvas, selectedNodeName, hoveredNodeName);
+	
+	// Draw info overlay if hovering or selected
+	const activeNodeName = hoveredNodeName || selectedNodeName;
+	if (activeNodeName) {
+		const node = interactionState.nodes.find(n => n.name === activeNodeName);
+		if (node) {
+			drawInfoOverlay(canvas, node);
+		}
+	}
+	
+	// Debug mode: draw larger, more visible nodes
+	if (interactionState.debugMode && interactionState.nodes.length > 0) {
+		const ctx = canvas.getContext("2d");
+		ctx.save();
+		interactionState.nodes.forEach((node, idx) => {
+			// Draw large contrasting circle (magenta)
+			ctx.beginPath();
+			ctx.arc(node.x, node.y, 13, 0, 2 * Math.PI);
+			ctx.fillStyle = "rgba(255, 0, 255, 0.3)"; // Semi-transparent magenta
+			ctx.fill();
+			ctx.strokeStyle = "#FF00FF"; // Bright magenta
+			ctx.lineWidth = 4;
+			ctx.stroke();
+			
+			// Draw center dot (white)
+			ctx.beginPath();
+			ctx.arc(node.x, node.y, 3, 0, 2 * Math.PI);
+			ctx.fillStyle = "#FFF";
+			ctx.fill();
+			ctx.strokeStyle = "#000";
+			ctx.lineWidth = 1;
+			ctx.stroke();
+			
+			// Draw label with background
+			const labelText = `${idx}:${node.freq}Hz`;
+			ctx.font = "11px monospace";
+			const textMetrics = ctx.measureText(labelText);
+			const textX = node.x + 15;
+			const textY = node.y + 4;
+			
+			// Background rectangle for readability
+			ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+			ctx.fillRect(textX - 2, textY - 10, textMetrics.width + 4, 14);
+			
+			// Text
+			ctx.fillStyle = "#0F0"; // Bright green text
+			ctx.fillText(labelText, textX, textY);
+		});
+		ctx.restore();
+		console.debug("Debug overlay drawn with high-contrast nodes");
+	}
+}
+
+function drawInfoOverlay(canvas, node) {
+	const ctx = canvas.getContext("2d");
+	
+	// Format values
+	const freqText = node.freq < 1000 
+		? `${Math.round(node.freq)} Hz` 
+		: `${(node.freq / 1000).toFixed(2)} kHz`;
+	const gainText = `${node.gain.toFixed(1)} dB`;
+	const qText = `Q: ${node.q.toFixed(2)}`;
+	
+	const text = `${freqText} | ${gainText} | ${qText}`;
+	
+	// Position overlay near node
+	const padding = 8;
+	const offsetY = -25;
+	
+	ctx.font = "13px Abel";
+	const metrics = ctx.measureText(text);
+	const textWidth = metrics.width;
+	const textHeight = 16;
+	
+	let boxX = node.x - textWidth / 2 - padding;
+	let boxY = node.y + offsetY - textHeight - padding;
+	
+	// Keep overlay within canvas bounds
+	boxX = Math.max(5, Math.min(canvas.width - textWidth - padding * 2 - 5, boxX));
+	boxY = Math.max(5, boxY);
+	
+	// Draw background
+	ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+	ctx.fillRect(boxX, boxY, textWidth + padding * 2, textHeight + padding * 2);
+	
+	// Draw border
+	ctx.strokeStyle = node.color;
+	ctx.lineWidth = 2;
+	ctx.strokeRect(boxX, boxY, textWidth + padding * 2, textHeight + padding * 2);
+	
+	// Draw text
+	ctx.fillStyle = "#FFF";
+	ctx.fillText(text, boxX + padding, boxY + textHeight + padding / 2);
+}
+
+// ========== INTERACTION HANDLERS ==========
+
+function initInteraction(canvas, handlers) {
+	console.debug("Initializing interactive EQ graph");
+	
+	interactionState.canvas = canvas;
+	interactionState.handlers = handlers || {};
+	
+	// Make canvas focusable
+	canvas.setAttribute('tabindex', '0');
+	canvas.style.cursor = 'crosshair';
+	
+	// Mouse events
+	canvas.addEventListener('mousedown', onMouseDown);
+	canvas.addEventListener('mousemove', onMouseMove);
+	canvas.addEventListener('mouseup', onMouseUp);
+	canvas.addEventListener('mouseleave', onMouseLeave);
+	canvas.addEventListener('wheel', onWheel, { passive: false });
+	
+	// Keyboard events
+	canvas.addEventListener('keydown', onKeyDown);
+	canvas.addEventListener('keyup', onKeyUp);
+	
+	console.debug("Interactive EQ graph initialized");
+}
+
+function getCanvasMousePos(canvas, evt) {
+	const rect = canvas.getBoundingClientRect();
+	return {
+		x: evt.clientX - rect.left,
+		y: evt.clientY - rect.top
+	};
+}
+
+function onMouseDown(evt) {
+	const canvas = interactionState.canvas;
+	const pos = getCanvasMousePos(canvas, evt);
+	
+	const hitNode = hitTest(pos.x, pos.y, canvas);
+	
+	if (hitNode) {
+		console.debug(`Mouse down on node: ${hitNode.name}`);
+		interactionState.isDragging = true;
+		interactionState.selectedNode = hitNode;
+		interactionState.dragStart = { x: pos.x, y: pos.y, freq: hitNode.freq, gain: hitNode.gain, q: hitNode.q };
+		
+		// Notify selection
+		if (interactionState.handlers.onSelect) {
+			interactionState.handlers.onSelect(hitNode.name);
+		}
+		
+		canvas.style.cursor = 'grabbing';
+		evt.preventDefault();
+	} else {
+		// Deselect
+		interactionState.selectedNode = null;
+		if (interactionState.handlers.onDeselect) {
+			interactionState.handlers.onDeselect();
+		}
+	}
+}
+
+function onMouseMove(evt) {
+	const canvas = interactionState.canvas;
+	const pos = getCanvasMousePos(canvas, evt);
+	
+	if (interactionState.isDragging && interactionState.selectedNode && interactionState.dragStart) {
+		// Dragging
+		const node = interactionState.selectedNode;
+		const isShiftPressed = evt.shiftKey;
+		
+		if (isShiftPressed) {
+			// Shift + drag: modify Q
+			const deltaY = interactionState.dragStart.y - pos.y;
+			const qChange = deltaY * 0.01; // Sensitivity
+			const newQ = Math.max(0.1, Math.min(20, interactionState.dragStart.q + qChange));
+			
+			if (interactionState.handlers.onDrag) {
+				interactionState.handlers.onDrag(node.name, node.freq, node.gain, newQ);
+			}
+		} else {
+			// Normal drag: modify frequency and gain
+			const newFreq = xToFreq(pos.x, canvas);
+			const newGain = yToDb(pos.y, canvas);
+			
+			if (interactionState.handlers.onDrag) {
+				interactionState.handlers.onDrag(node.name, newFreq, newGain, node.q);
+			}
+		}
+		
+		evt.preventDefault();
+	} else {
+		// Hovering
+		const hitNode = hitTest(pos.x, pos.y, canvas);
+		
+		if (hitNode) {
+			interactionState.hoveredNode = hitNode;
+			canvas.style.cursor = 'pointer'; // More visible cursor
+			console.debug(`Hovering over node: ${hitNode.name}`);
+		} else {
+			interactionState.hoveredNode = null;
+			canvas.style.cursor = 'crosshair';
+		}
+		
+		// Request overlay redraw
+		if (interactionState.handlers.onHover) {
+			interactionState.handlers.onHover(hitNode ? hitNode.name : null);
+		}
+	}
+}
+
+function onMouseUp(evt) {
+	if (interactionState.isDragging) {
+		console.debug(`Mouse up, ending drag of ${interactionState.selectedNode?.name}`);
+		
+		if (interactionState.handlers.onDragEnd) {
+			interactionState.handlers.onDragEnd();
+		}
+		
+		interactionState.isDragging = false;
+		interactionState.dragStart = null;
+		interactionState.canvas.style.cursor = 'grab';
+	}
+}
+
+function onMouseLeave(evt) {
+	if (interactionState.isDragging) {
+		onMouseUp(evt);
+	}
+	interactionState.hoveredNode = null;
+	if (interactionState.handlers.onHover) {
+		interactionState.handlers.onHover(null);
+	}
+}
+
+function onWheel(evt) {
+	const canvas = interactionState.canvas;
+	const pos = getCanvasMousePos(canvas, evt);
+	
+	const hitNode = hitTest(pos.x, pos.y, canvas);
+	
+	if (hitNode) {
+		// Modify Q with wheel
+		const delta = -Math.sign(evt.deltaY);
+		const qChange = delta * 0.1;
+		const newQ = Math.max(0.1, Math.min(20, hitNode.q + qChange));
+		
+		console.debug(`Wheel on ${hitNode.name}: Q ${hitNode.q.toFixed(2)} -> ${newQ.toFixed(2)}`);
+		
+		if (interactionState.handlers.onDrag) {
+			interactionState.handlers.onDrag(hitNode.name, hitNode.freq, hitNode.gain, newQ);
+		}
+		
+		if (interactionState.handlers.onDragEnd) {
+			interactionState.handlers.onDragEnd();
+		}
+		
+		evt.preventDefault();
+	}
+}
+
+function onKeyDown(evt) {
+	if (!interactionState.selectedNode) return;
+	
+	const node = interactionState.selectedNode;
+	let newFreq = node.freq;
+	let newGain = node.gain;
+	let changed = false;
+	
+	switch (evt.key) {
+		case 'ArrowUp':
+			newGain = Math.min(24, node.gain + 0.1);
+			changed = true;
+			break;
+		case 'ArrowDown':
+			newGain = Math.max(-24, node.gain - 0.1);
+			changed = true;
+			break;
+		case 'ArrowLeft':
+			newFreq = Math.max(20, node.freq * 0.99);
+			changed = true;
+			break;
+		case 'ArrowRight':
+			newFreq = Math.min(20000, node.freq * 1.01);
+			changed = true;
+			break;
+		case 'Escape':
+			interactionState.selectedNode = null;
+			if (interactionState.handlers.onDeselect) {
+				interactionState.handlers.onDeselect();
+			}
+			return;
+	}
+	
+	if (changed) {
+		console.debug(`Keyboard adjustment: ${node.name} freq=${newFreq.toFixed(0)} gain=${newGain.toFixed(1)}`);
+		
+		if (interactionState.handlers.onDrag) {
+			interactionState.handlers.onDrag(node.name, newFreq, newGain, node.q);
+		}
+		
+		if (interactionState.handlers.onDragEnd) {
+			interactionState.handlers.onDragEnd();
+		}
+		
+		evt.preventDefault();
+	}
+}
+
+function onKeyUp(evt) {
+	// Future: handle modifier key releases if needed
+}
+
+// ========== PUBLIC API ==========
+
+function setSelectedNode(nodeName) {
+	const node = interactionState.nodes.find(n => n.name === nodeName);
+	if (node) {
+		interactionState.selectedNode = node;
+		console.debug(`Selected node: ${nodeName}`);
+	} else {
+		interactionState.selectedNode = null;
+		console.debug(`Deselected node`);
+	}
+}
+
+function updateNodeIndex(filterObject, canvas, color) {
+	interactionState.filterObject = filterObject;
+	interactionState.nodes = buildNodeIndex(filterObject, canvas, color);
+}
+
 export default plot;
+export { initInteraction, drawOverlay, setSelectedNode, updateNodeIndex };
