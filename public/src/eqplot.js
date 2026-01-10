@@ -5,7 +5,12 @@ const QUADLEN = 2048;
 const textMargin=40;
 const leftMargin=35;
 
-const verticalDBRange= 30;      
+const verticalDBRange= 30;
+
+// Constants for coordinate mapping
+const MIN_FREQ = 20;
+const MAX_FREQ = 20000;
+const HEIGHT_SCALE = 16.5;
 
 function calculateFilterDataMatrix(type, freq, gain, qfact) {	
 	let sampleRate=40000;
@@ -288,6 +293,100 @@ function createGrid(canvas) {
 	
 }
 
+/**
+ * Convert frequency (Hz) to canvas X coordinate using logarithmic scale
+ * @param {number} freq - Frequency in Hz
+ * @param {number} canvasWidth - Total canvas width
+ * @returns {number} X coordinate on canvas
+ */
+function freqToX(freq, canvasWidth) {
+	const width = canvasWidth - textMargin;
+	const logMin = Math.log10(MIN_FREQ);
+	const logMax = Math.log10(MAX_FREQ);
+	const logFreq = Math.log10(Math.max(MIN_FREQ, Math.min(MAX_FREQ, freq)));
+	
+	return leftMargin + ((logFreq - logMin) / (logMax - logMin)) * width;
+}
+
+/**
+ * Convert gain (dB) to canvas Y coordinate
+ * @param {number} gain - Gain in dB
+ * @param {number} canvasHeight - Total canvas height
+ * @returns {number} Y coordinate on canvas
+ */
+function gainToY(gain, canvasHeight) {
+	const centerY = canvasHeight / 2;
+	return centerY - (gain * HEIGHT_SCALE);
+}
+
+/**
+ * Draw a filter marker (dot and Q-value line) at the specified filter position
+ * @param {CanvasRenderingContext2D} ctx - Canvas context
+ * @param {number} freq - Filter frequency in Hz
+ * @param {number} gain - Filter gain in dB
+ * @param {number} q - Filter Q value
+ * @param {string} color - Color for the marker (hex string)
+ * @param {Object} options - Additional options for extensibility
+ * @param {number} options.dotRadius - Radius of the dot (default: 6px for ~12px diameter)
+ * @param {number} options.qLineHeight - Height of Q-value delimiter lines (default: 8px)
+ * @param {number} options.minQLineWidth - Minimum Q line width (default: 30px)
+ * @param {number} options.maxQLineWidth - Maximum Q line width (default: 80px)
+ */
+function drawFilterMarker(ctx, freq, gain, q, color, options = {}) {
+	const dotRadius = options.dotRadius || 6;
+	const qLineHeight = options.qLineHeight || 8;
+	const minQLineWidth = options.minQLineWidth || 30;
+	const maxQLineWidth = options.maxQLineWidth || 80;
+	
+	// Calculate canvas coordinates
+	const x = freqToX(freq, ctx.canvas.width);
+	const y = gainToY(gain, ctx.canvas.height);
+	
+	// Calculate Q line width - map Q value to consistent visual width
+	// Lower Q = wider bandwidth = longer line
+	// Higher Q = narrower bandwidth = shorter line
+	// Q typically ranges from 0.5 to 10+, we'll map this inversely
+	const qNormalized = Math.max(0.5, Math.min(10, q)); // Clamp Q between 0.5 and 10
+	const qLineWidth = maxQLineWidth - ((qNormalized - 0.5) / (10 - 0.5)) * (maxQLineWidth - minQLineWidth);
+	
+	// Draw Q-value horizontal line with delimiters
+	ctx.save();
+	ctx.strokeStyle = color;
+	ctx.lineWidth = 1.5;
+	ctx.setLineDash([]);
+	
+	// Horizontal line
+	ctx.beginPath();
+	ctx.moveTo(x - qLineWidth / 2, y);
+	ctx.lineTo(x + qLineWidth / 2, y);
+	ctx.stroke();
+	
+	// Left delimiter
+	ctx.beginPath();
+	ctx.moveTo(x - qLineWidth / 2, y - qLineHeight / 2);
+	ctx.lineTo(x - qLineWidth / 2, y + qLineHeight / 2);
+	ctx.stroke();
+	
+	// Right delimiter
+	ctx.beginPath();
+	ctx.moveTo(x + qLineWidth / 2, y - qLineHeight / 2);
+	ctx.lineTo(x + qLineWidth / 2, y + qLineHeight / 2);
+	ctx.stroke();
+	
+	// Draw the dot
+	ctx.beginPath();
+	ctx.arc(x, y, dotRadius, 0, 2 * Math.PI);
+	ctx.fillStyle = color;
+	ctx.fill();
+	
+	// Add a border to the dot for better visibility
+	ctx.strokeStyle = '#FFF';
+	ctx.lineWidth = 1.5;
+	ctx.stroke();
+	
+	ctx.restore();
+}
+
 function plot(filterObject, canvas, name, color) {
 	const ctx = canvas;        
 	const context = ctx.getContext('2d');             
@@ -308,6 +407,11 @@ function plot(filterObject, canvas, name, color) {
 		let totalArray = new Array(QUADLEN).fill(0).map(() => new Array(QUADLEN).fill(0));
 		let dataMatrix=[];	
 		let filterNum=0;
+		let filterMarkers = []; // Store filter data for marker drawing
+		
+		// Get the 2D context from the canvas for marker drawing
+		const context = ctx.getContext('2d');
+		
 		for (let filter of filters) {  
 			// if (filterObject[filter].type=="Gain") continue;
 			
@@ -319,13 +423,28 @@ function plot(filterObject, canvas, name, color) {
 				totalArray[i][0]=dataMatrix[i][0]
 				totalArray[i][1]=dataMatrix[i][1]+totalArray[i][1];        
 			}
-			let newColor = colorChange(color,filterNum)						
-			plotArray(ctx,dataMatrix,"#"+newColor,0.5);		
-			filterNum++;
+			let newColor = colorChange(color,filterNum);
+			plotArray(ctx,dataMatrix,"#"+newColor,0.5);
 			
+			// Store filter parameters for marker drawing
+			filterMarkers.push({
+				freq: filterObject[filter].parameters.freq,
+				gain: filterObject[filter].parameters.gain,
+				q: filterObject[filter].parameters.q,
+				color: "#"+newColor
+			});
+			
+			filterNum++;
 		}
 		
-		let t= plotArray(ctx, totalArray,"#FFF",2.5);					
+		// Draw the total response line
+		let t= plotArray(ctx, totalArray,"#FFF",2.5);
+		
+		// Draw filter markers on top of all curves
+		for (let marker of filterMarkers) {
+			drawFilterMarker(context, marker.freq, marker.gain, marker.q, marker.color);
+		}
+		
 		return totalArray;
 	}
 
