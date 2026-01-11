@@ -504,7 +504,15 @@ function drawFilterMarker(ctx, freq, gain, q, color, options = {}) {
 	ctx.restore();
 }
 
-function plot(filterObject, canvas, name, color, channelNo) {
+function plot(filterObject, canvas, name, color, channelNo, options = {}) {
+	// Default options
+	const {
+		markerFilter = null,        // function(filterName, filterDef) => boolean to show marker
+		interactiveFilter = null,   // function(filterName, filterDef) => boolean to make interactive
+		appendMarkers = false,      // append to existing markers (multi-channel)
+		drawGrid = true             // draw grid (disable for multi-channel overlays)
+	} = options;
+	
 	const ctx = canvas;        
 	const context = ctx.getContext('2d');             
 	let newColor;
@@ -516,11 +524,13 @@ function plot(filterObject, canvas, name, color, channelNo) {
 	
 
 	// Create the grid
-	createGrid(ctx); 
+	if (drawGrid) {
+		createGrid(ctx);
+	}
 	
-	canvas.totalArray = plotFilters(Object.keys(filterObject),ctx,color,channelNo);
+	canvas.totalArray = plotFilters(Object.keys(filterObject),ctx,color,channelNo,markerFilter,interactiveFilter,appendMarkers);
 
-	function plotFilters(filters, ctx, color, channelNo) {
+	function plotFilters(filters, ctx, color, channelNo, markerFilter, interactiveFilter, appendMarkers) {
 		let totalArray = new Array(QUADLEN).fill(0).map(() => new Array(QUADLEN).fill(0));
 		let dataMatrix=[];	
 		let filterNum=0;
@@ -566,20 +576,29 @@ function plot(filterObject, canvas, name, color, channelNo) {
 			const y = gainToY(filterObject[filter].parameters.gain, ctx.height);
 			const dotRadius = 6; // Match default in drawFilterMarker
 			
-			// Store filter parameters for marker drawing with identity
-			filterMarkers.push({
-				id: filter + (channelNo !== undefined ? `_ch${channelNo}` : ''),
-				filterName: filter,
-				channelNo: channelNo,
-				freq: filterObject[filter].parameters.freq,
-				gain: filterObject[filter].parameters.gain,
-				q: filterObject[filter].parameters.q,
-				type: filterSubtype,
-				color: markerColor,
-				x: x,
-				y: y,
-				dotRadius: dotRadius
-			});
+			// Determine if this marker should be visible and interactive
+			const filterDef = filterObject[filter];
+			const shouldShowMarker = markerFilter ? markerFilter(filter, filterDef) : true;
+			const isInteractive = interactiveFilter ? interactiveFilter(filter, filterDef) : shouldShowMarker;
+			
+			// Only add marker if it should be shown
+			if (shouldShowMarker) {
+				// Store filter parameters for marker drawing with identity
+				filterMarkers.push({
+					id: filter + (channelNo !== undefined ? `_ch${channelNo}` : ''),
+					filterName: filter,
+					channelNo: channelNo,
+					freq: filterObject[filter].parameters.freq,
+					gain: filterObject[filter].parameters.gain,
+					q: filterObject[filter].parameters.q,
+					type: filterSubtype,
+					color: markerColor,
+					x: x,
+					y: y,
+					dotRadius: dotRadius,
+					interactive: isInteractive
+				});
+			}
 			
 			filterNum++;
 		}
@@ -593,7 +612,12 @@ function plot(filterObject, canvas, name, color, channelNo) {
 		}
 		
 		// Store marker metadata on canvas for interaction
-		ctx.__eqMarkers = filterMarkers;
+		// If appendMarkers is true, accumulate markers (for multi-channel)
+		if (appendMarkers && ctx.__eqMarkers) {
+			ctx.__eqMarkers = ctx.__eqMarkers.concat(filterMarkers);
+		} else {
+			ctx.__eqMarkers = filterMarkers;
+		}
 		
 		return totalArray;
 	}
@@ -662,6 +686,9 @@ export function enableEqPlotInteraction(canvas) {
 		if (!canvas.__eqMarkers) return null;
 		
 		for (let marker of canvas.__eqMarkers) {
+			// Skip non-interactive markers
+			if (!marker.interactive) continue;
+			
 			const dx = x - marker.x;
 			const dy = y - marker.y;
 			const dist = Math.sqrt(dx * dx + dy * dy);
@@ -676,6 +703,7 @@ export function enableEqPlotInteraction(canvas) {
 	function emitMarkerEvent(eventType, marker, params, gesture) {
 		const event = new CustomEvent(eventType, {
 			detail: {
+				markerId: marker.id,
 				filterName: marker.filterName,
 				channelNo: marker.channelNo,
 				params: params,

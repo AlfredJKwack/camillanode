@@ -256,6 +256,11 @@ function plotConfig() {
     const context = canvas.getContext('2d');             
 	context.clearRect(0, 0, canvas.width, canvas.height);        	
     
+    // Filter function: only show markers for PEQ filters (exclude system filters starting with __)
+    const isPEQFilter = (filterName, filterDef) => {
+        return filterDef?.type === 'Biquad' && !filterName.startsWith('__');
+    };
+    
     if (window.parent.activeSettings.peqDualChannel) {
         let colors = ["#B55","#55B","#5B5","#F33","#33F","#3F3"]
         let channelCount = DSP.getChannelCount();
@@ -265,7 +270,13 @@ function plotConfig() {
             for (let filter of filterList) {     
                 channelFilters[filter]=DSP.config.filters[filter];
             }
-            plot(channelFilters,canvas,DSP.config.title,colors[channelNo],channelNo);
+            // Accumulate markers across channels for multi-channel mode
+            plot(channelFilters, canvas, DSP.config.title, colors[channelNo], channelNo, {
+                markerFilter: isPEQFilter,
+                interactiveFilter: isPEQFilter,
+                appendMarkers: channelNo > 0,
+                drawGrid: channelNo === 0
+            });
         }
 
     } else {
@@ -273,7 +284,10 @@ function plotConfig() {
         // console.log("Start hue : ",window.parent.activeSettings.backgroundHue,hue*360,hue)
         let color = hslToRgb(hue, 0.3, 0.3);
         let colorNum = (color[0]+color[1]*255+color[2]*255*255);
-        plot(DSP.config.filters,canvas,DSP.config.title,colorNum);            
+        plot(DSP.config.filters, canvas, DSP.config.title, colorNum, undefined, {
+            markerFilter: isPEQFilter,
+            interactiveFilter: isPEQFilter
+        });            
     }    
 }
 

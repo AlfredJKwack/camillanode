@@ -165,6 +165,15 @@ function plotConfig() {
     const context = canvas.getContext('2d');             
 	context.clearRect(0, 0, canvas.width, canvas.height);        	
     
+    // Define which filters are tone controls (should have markers)
+    const BASIC_TONE_FILTERS = new Set([
+        '__subBass', '__bass', '__mids', '__upperMids', '__treble'
+    ]);
+    
+    // Filter functions to scope markers to tone controls only
+    const markerFilter = (filterName, filterDef) => BASIC_TONE_FILTERS.has(filterName);
+    const interactiveFilter = (filterName, filterDef) => BASIC_TONE_FILTERS.has(filterName);
+    
     if (window.parent.activeSettings.peqDualChannel) {
         let colors = ["#B55","#55B","#5B5","#F33","#33F","#3F3"]
         let channelCount = DSP.getChannelCount();
@@ -174,14 +183,23 @@ function plotConfig() {
             for (let filter of filterList) {     
                 channelFilters[filter]=DSP.config.filters[filter];
             }
-            plot(channelFilters,canvas,DSP.config.title,colors[channelNo]);
+            // Only show markers for first channel to avoid duplication
+            plot(channelFilters, canvas, DSP.config.title, colors[channelNo], channelNo, {
+                markerFilter: channelNo === 0 ? markerFilter : () => false,
+                interactiveFilter: channelNo === 0 ? interactiveFilter : () => false,
+                appendMarkers: channelNo > 0,
+                drawGrid: channelNo === 0
+            });
         }
 
     } else {
         let hue = (Math.abs((parseInt(window.parent.activeSettings.backgroundHue) + 10 )) % 360) /360;        
         let color = hslToRgb(hue, 0.3, 0.3);
         let colorNum = (color[0]+color[1]*255+color[2]*255*255);
-        plot(DSP.config.filters,canvas,DSP.config.title,colorNum);            
+        plot(DSP.config.filters, canvas, DSP.config.title, colorNum, undefined, {
+            markerFilter: markerFilter,
+            interactiveFilter: interactiveFilter
+        });            
     }    
 }
 
