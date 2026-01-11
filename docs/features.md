@@ -9,4 +9,5 @@ Document features and the current work-in-progress modules:
 - `Code Bug` — Check console errors when using extreme values.
 - `Orphaned Code` — The '/Views/' folder is not used. Remove it.
 - `UX improvement` — Consider implementing 'Shift+drag'. Users with track pads & magic mouse will be grateful.
+- `resetPEQ` — The reset button on the equalizer page doesn't work. There is no implementation of it other than a stub somewhere.
 

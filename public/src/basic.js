@@ -1,7 +1,10 @@
 
-
-async function basicLoad() {       
-    
+/**
+ * Initialize and load the basic equalizer interface with controls and tone settings
+ * Sets up knobs, loads DSP configuration, attaches event listeners, and enables interactive plot markers
+ * @returns {Promise<void>} Promise that resolves when initialization is complete
+ */
+async function basicLoad() {
     const basicControls = document.getElementById('basicControls');
     const ctx = document.getElementById('plotCanvas');    
 
@@ -100,8 +103,13 @@ async function basicLoad() {
     }
 }
 
+/**
+ * Update canvas width to match control container and redraw the plot
+ * Ensures canvas visual width aligns properly by accounting for CSS padding
+ * @returns {void}
+ */
 function updateElementWidth() {
-    const basicControls = document.getElementById("basicControls");       
+    const basicControls = document.getElementById("basicControls");
     const canvas = document.getElementById("plotCanvas");           
     const ctx = document.getElementById('plotCanvas');    
     DSP = window.parent.DSP;            
@@ -114,8 +122,13 @@ function updateElementWidth() {
     plotConfig();
 }
 
+/**
+ * Load volume, balance, crossfeed, and tone control data from DSP config
+ * Initializes tone filters if they don't exist and updates UI knobs to reflect current values
+ * @returns {Promise<void>} Promise that resolves when data loading and plotting is complete
+ */
 async function loadData() {
-    const ctx = document.getElementById('plotCanvas');    
+    const ctx = document.getElementById('plotCanvas');
     DSP = window.parent.DSP;            
     
 
@@ -160,8 +173,13 @@ async function loadData() {
     plotConfig();
 }
 
+/**
+ * Plot the EQ frequency response curve with tone control markers on the canvas
+ * Handles both single and dual-channel modes with appropriate marker filtering for basic tone controls
+ * @returns {void}
+ */
 function plotConfig() {
-    const canvas = document.getElementById("plotCanvas");        
+    const canvas = document.getElementById("plotCanvas");
     const context = canvas.getContext('2d');             
 	context.clearRect(0, 0, canvas.width, canvas.height);        	
     
@@ -203,6 +221,11 @@ function plotConfig() {
     }    
 }
 
+/**
+ * Update tone control filter gains from knob values and upload to DSP
+ * Skips execution during drag operations to avoid conflicts with interactive marker updates
+ * @returns {Promise<void>} Promise that resolves when tone values are updated and uploaded
+ */
 async function setTone() {
     // Guard against running during drag to avoid conflicts
     if (window.__eqplotDragInProgress) {
@@ -239,6 +262,11 @@ const  freq = ['25', '30', '40', '50', '63', '80', '100', '125', '160', '200', '
 '3.1K', '4K', '5K', '6.3K', '8K', '10K', '12K', '16K', '20K']
 
 
+/**
+ * Initialize and render the audio spectrum analyzer display with animated level bars
+ * Creates DOM elements for frequency bands and starts a 100ms polling interval to fetch and visualize spectrum data
+ * @returns {Promise<void>} Promise that resolves when spectrum UI is initialized and update loop is started
+ */
 async function initSpectrum(){          
     // Create bars and boxes
     const spec = document.getElementById("spectrum");   
@@ -293,6 +321,11 @@ async function initSpectrum(){
     },100)
 }
 
+/**
+ * Set up interactive marker dragging on the EQ plot canvas
+ * Imports eqplot module, enables interaction, and wires up event handlers for marker drag with throttled plot updates and debounced DSP uploads
+ * @returns {void}
+ */
 function setupPlotInteraction() {
     const canvas = document.getElementById("plotCanvas");
     
@@ -314,7 +347,11 @@ function setupPlotInteraction() {
         '__treble': window.treble
     };
     
-    // Throttled plot update using requestAnimationFrame
+    /**
+     * Schedule a throttled plot update using requestAnimationFrame
+     * Prevents redundant redraws by ensuring only one pending update at a time
+     * @returns {void}
+     */
     function scheduleThrottledPlot() {
         if (plotTimer) return;
         plotTimer = requestAnimationFrame(() => {
@@ -323,7 +360,11 @@ function setupPlotInteraction() {
         });
     }
     
-    // Debounced DSP upload
+    /**
+     * Schedule a debounced DSP config upload with 100ms delay
+     * Prevents excessive uploads during continuous parameter changes by resetting the timer on each call
+     * @returns {void}
+     */
     function scheduleDSPUpload() {
         clearTimeout(uploadTimer);
         uploadTimer = setTimeout(() => {
@@ -385,6 +426,14 @@ function setupPlotInteraction() {
 
 const { abs, min, max, round } = Math;
 
+/**
+ * Convert HSL color values to RGB array
+ * Handles both chromatic and achromatic color conversions for use in canvas plotting
+ * @param {number} h - Hue value (0-1 normalized)
+ * @param {number} s - Saturation value (0-1)
+ * @param {number} l - Lightness value (0-1)
+ * @returns {Array<number>} Array of [r, g, b] values (0-255)
+ */
 function hslToRgb(h, s, l) {
     let r, g, b;
   
@@ -401,6 +450,14 @@ function hslToRgb(h, s, l) {
     return [round(r * 255), round(g * 255), round(b * 255)];
   }
   
+  /**
+   * Helper function to convert hue to RGB component value
+   * Implements the HSL-to-RGB conversion algorithm for a single color component
+   * @param {number} p - Calculated p value from HSL conversion
+   * @param {number} q - Calculated q value from HSL conversion
+   * @param {number} t - Adjusted hue value for the specific color component
+   * @returns {number} RGB component value (0-1)
+   */
   function hueToRgb(p, q, t) {
     if (t < 0) t += 1;
     if (t > 1) t -= 1;

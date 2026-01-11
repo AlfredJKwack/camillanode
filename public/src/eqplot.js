@@ -1,17 +1,60 @@
-
-
+/**
+ * Constant: QUADLEN
+ * Description: This constant defines the number of points calculated in the frequency response calculation.
+ * Usage: Used in functions like `calculateFilterDataMatrix` to determine the length of arrays that store frequency response data.
+ */
 const QUADLEN = 2048;
 
-const textMargin=40;
-const leftMargin=35;
+/**
+ * Constant: textMargin
+ * Description: Defines the margin used for text placement, particularly for labeling axes.
+ * Usage: Applied in canvas drawing functions, such as `createGrid`, to offset text labels from the edges of the canvas for clarity.
+ */
+const textMargin = 40;
 
-const verticalDBRange= 30;
+/**
+ * Constant: leftMargin
+ * Description: Margin space used as a buffer on the left side of the canvas to accommodate labels or axes.
+ * Usage: Used in functions like `createGrid` and `freqToX`, helping to position elements correctly relative to the left edge of the canvas.
+ */
+const leftMargin = 35;
 
-// Constants for coordinate mapping
+/**
+ * Constant: verticalDBRange
+ * Description: Number of vertical steps for drawing dB scale on the canvas.
+ * Usage: Utilized in `createGrid` to determine the number of horizontal grid lines based on decibels, facilitating visual scaling of gain values.
+ */
+const verticalDBRange = 30;
+
+/**
+ * Constant: MIN_FREQ
+ * Description: The minimum frequency (in Hz) considered in the logarithmic frequency mapping.
+ * Usage: Used in functions like `freqToX` to set bounds for frequency mapping, ensuring calculations start from this base frequency.
+ */
 const MIN_FREQ = 20;
+
+/**
+ * Constant: MAX_FREQ
+ * Description: The maximum frequency (in Hz) considered in the logarithmic frequency mapping.
+ * Usage: Paired with MIN_FREQ in mapping functions (`freqToX` and `xToFreq`) for setting upper bounds on frequency calculations and drawings.
+ */
 const MAX_FREQ = 20000;
+
+/**
+ * Constant: HEIGHT_SCALE
+ * Description: Multiplier for converting gain (in dB) to Y-coordinates on the canvas.
+ * Usage: Applied in functions like `plotArray` and `drawFilterMarker` to translate dB gain values into corresponding vertical positions on the plot.
+ */
 const HEIGHT_SCALE = 16.5;
 
+/**
+ * Calculate the filter data matrix for different filter types with given frequency, gain, and Q factor.
+ * @param {string} type - The type of filter (e.g., "Lowpass", "Highshelf").
+ * @param {number} freq - The frequency at which the filter operates.
+ * @param {number} gain - The gain value in decibels for the filter.
+ * @param {number} qfact - The quality factor for the filter.
+ * @returns {Array<Array<number>>} Magnitude plot array consisting of frequency and gain pairs.
+ */
 function calculateFilterDataMatrix(type, freq, gain, qfact) {	
 	let sampleRate=40000;
 	let a0,a1,a2,b1,b2,norm;	
@@ -142,6 +185,14 @@ function calculateFilterDataMatrix(type, freq, gain, qfact) {
 	
 }
 
+/**
+ * Plot an array of frequency and gain values on the canvas.
+ * @param {HTMLCanvasElement} canvas - The canvas element to draw on.
+ * @param {Array<Array<number>>} array - The array containing frequency and gain pairs.
+ * @param {string} col - The color used for the plot line (hex or color name).
+ * @param {number} lineWidth - The width of the plot line.
+ * @returns {Object} The color and lineWidth used for plotting.
+ */
 function plotArray(canvas, array, col, lineWidth){       
 	let ctx = canvas.getContext("2d");
 	let h = canvas.height;    
@@ -168,6 +219,11 @@ function plotArray(canvas, array, col, lineWidth){
 	return {"color":col,"lineWidth":lineWidth};	
 }
 
+/**
+ * Create a grid with horizontal and vertical lines for additional visual reference.
+ * @param {HTMLCanvasElement} canvas - The canvas element to draw on.
+ * @returns {void}
+ */
 function createGridEx(canvas) {
 	let ctx = canvas.getContext("2d");
 
@@ -228,6 +284,11 @@ function createGridEx(canvas) {
 	
 }
 
+/**
+ * Create a grid on the canvas for better visualization of frequency and gain scales.
+ * @param {HTMLCanvasElement} canvas - The canvas element to draw on.
+ * @returns {void}
+ */
 function createGrid(canvas) {
 	let ctx = canvas.getContext("2d");
 	
@@ -448,6 +509,7 @@ function yToGain(y, canvasHeight) {
  * @param {number} options.qLineHeight - Height of Q-value delimiter lines (default: 8px)
  * @param {number} options.minQLineWidth - Minimum Q line width (default: 30px)
  * @param {number} options.maxQLineWidth - Maximum Q line width (default: 80px)
+ * @return {void}
  */
 function drawFilterMarker(ctx, freq, gain, q, color, options = {}) {
 	const dotRadius = options.dotRadius || 6;
@@ -504,6 +566,20 @@ function drawFilterMarker(ctx, freq, gain, q, color, options = {}) {
 	ctx.restore();
 }
 
+/**
+ * Main function to plot EQ filters on a canvas
+ * @param {Object} filterObject - Object containing filter definitions
+ * @param {HTMLCanvasElement} canvas - Canvas element to draw on	
+ * @param {string} name - Name of the filter to plot	
+ * @param {string} color - Color of the filter plot			
+ * @param {number} channelNo - Channel number (for multi-channel plots)								
+ * @param {Object} options - Additional options for plotting
+ * @param {Function} options.markerFilter - Function(filterName, filterDef) => boolean to show marker
+ * @param {Function} options.interactiveFilter - Function(filterName, filterDef) => boolean to make interactive
+ * @param {boolean} options.appendMarkers - Append to existing markers (multi-channel)
+ * @param {boolean} options.drawGrid - Draw grid (disable for multi-channel overlays)
+ * @returns {Array<Array<number>>} Total response array
+ */
 function plot(filterObject, canvas, name, color, channelNo, options = {}) {
 	// Default options
 	const {

@@ -12,6 +12,11 @@ interval = setInterval(function(){
 },100);
 
 
+/**
+ * Initialize and load the parametric equalizer interface with all controls
+ * Sets up knobs, loads filters from DSP config, creates filter UI elements, and enables interactive plot markers
+ * @returns {Promise<void>} Promise that resolves when initialization is complete
+ */
 async function equalizerOnLoad() {            
     document.loading=true;
     const PEQ = document.getElementById('PEQ');                
@@ -110,8 +115,6 @@ async function equalizerOnLoad() {
 
     const spec = document.getElementById("spectrum");
 
-    
-
     if(window.parent.activeSettings.showEqualizerSpectrum && window.parent.activeSettings.enableSpectrum) {        
         spec.style.display="grid";
         initSpectrum();    
@@ -122,8 +125,13 @@ async function equalizerOnLoad() {
     
 }
 
+/**
+ * Update canvas width and spectrum bar widths to match window dimensions
+ * Ensures proper visual alignment by recalculating widths and accounting for CSS padding
+ * @returns {void}
+ */
 function updateElementWidth() {
-    const spec = document.getElementById("spectrum");   
+    const spec = document.getElementById("spectrum");
     const barCount=spec.childNodes.length-1;
     const barWidth= (spec.getBoundingClientRect().width - (barCount*6)) / barCount;
     document.documentElement.style.setProperty("--levelbar-width",barWidth+"px") 
@@ -139,8 +147,13 @@ function updateElementWidth() {
 }
 
 
+/**
+ * Load all biquad filters from DSP config and create UI elements for each
+ * Handles single/dual channel modes by splitting or merging filters as needed and creates filter elements sorted by frequency
+ * @returns {Promise<void>} Promise that resolves when filters are loaded and UI is built
+ */
 async function loadFiltersFromConfig() {                        
-    PEQ.innerHTML='';                
+    PEQ.innerHTML='';
     
     await DSP.downloadConfig();
 
@@ -200,6 +213,12 @@ async function loadFiltersFromConfig() {
     await DSP.uploadConfig();
 }
 
+/**
+ * Create a UI element for a given filter with controls for type, subtype, parameters, and add/remove buttons
+ * Configures layout based on single-line or multi-line mode settings
+ * @param {Object} currentFilter - The filter object for which to create the UI element
+ * @returns {HTMLElement} The constructed filter UI element
+ */
 function createFilterElement(currentFilter) {
     // currentFilter.createElement(true);            
 
@@ -251,6 +270,11 @@ function createFilterElement(currentFilter) {
     return peqElement;
 }
 
+/** Plot the current DSP configuration on the canvas
+ * Supports single and dual channel modes with distinct colors for each channel
+ * Filters system filters and only displays parametric EQ (PEQ) filters
+ * @returns {void}
+ */
 function plotConfig() {
     const canvas = document.getElementById("plotCanvas");        
     const context = canvas.getContext('2d');             
@@ -291,6 +315,11 @@ function plotConfig() {
     }    
 }
 
+/** Set the preamp gain in the DSP configuration
+ * Adds a Gain filter if not already present and updates its gain parameter
+ * @param {number} gain - The desired preamp gain in dB
+ * @returns {void}
+ */
 function setPreamp(gain) {    
     if (DSP.config.filters.Gain == undefined) {        
         let gainFilter = {}
@@ -300,6 +329,9 @@ function setPreamp(gain) {
     DSP.config.filters.Gain.parameters.gain= Math.round(gain);                    
 }
 
+/** Sort all PEQ channel elements by filter frequency
+ * @returns {void}
+ */
 function sortAll() {
     const PEQs=document.getElementsByClassName("peqChannel");                        
     for (let PEQ of PEQs) {
@@ -307,6 +339,10 @@ function sortAll() {
     }
 }
 
+/** Sort child PEQ elements of a parent container by their filter frequency
+ * @param {HTMLElement} parent - The parent container whose child PEQ elements will be sorted
+ * @returns {void}
+ */
 function sortByFreq(parent) {    
     let elementArray=[];
     parent.childNodes.forEach(element => {                        
@@ -328,6 +364,10 @@ function sortByFreq(parent) {
     }            
 }
 
+/** Clear all PEQ filters from DSP configuration and UI
+ * Resets preamp gain to 0 dB and updates the plot
+ * @returns {Promise<void>} Promise that resolves when clearing is complete
+ */
 async function clearPEQ() {        
     setPreamp(0);
     DSP.clearFilters();       
@@ -338,6 +378,11 @@ async function clearPEQ() {
     plotConfig(); 
 }
 
+/** Add a new filter to the specified channel at the appropriate frequency
+ * Inserts the new filter UI element in sorted order and uploads to DSP
+ * @param {Event} e - The event triggering the addition, contains context for insertion point
+ * @returns {Promise<void>} Promise that resolves when the filter is added
+ */
 async function addNewFilter(e) {    
     // Create a filter object based on default filter 
     let newFilter = new window.filter(DSP);    
@@ -387,6 +432,11 @@ async function addNewFilter(e) {
     
 }
 
+/** Remove a filter from DSP configuration and UI
+ * Also removes from the other channel if dual channel mode is off
+ * @param {Event} e - The event triggering the removal, contains context for which filter to remove
+ * @returns {Promise<void>} Promise that resolves when the filter is removed
+ */
 async function removeFilter(e) {
     let peqChannel= e.target.parentElement;
     let channel = parseInt(peqChannel.getAttribute("channelno"));
@@ -408,10 +458,18 @@ function resetPEQ() {
     console.log("Reset needs to be re-implemented")
 }
 
+/** Frequencies for spectrum analyzer bars
+ * @type {string[]}
+ */
 const  freq = ['25', '30', '40', '50', '63', '80', '100', '125', '160', '200', '250',
 '315', '400', '500', '630', '800', '1K', '1.2K', '1.6K', '2K', '2.5K',
 '3.1K', '4K', '5K', '6.3K', '8K', '10K', '12K', '16K', '20K']
 
+/** Initialize the spectrum analyzer display with bars and boxes
+ * Sets up the visual elements and starts periodic updates to reflect audio spectrum data
+ * @param {Window} [parentWindow=window] - The parent window context for accessing settings and DOM
+ * @returns {Promise<void>} Promise that resolves when initialization is complete
+ */
 async function initSpectrum(parentWindow){         
     
     if (!window.parent.activeSettings.enableSpectrum) return;
@@ -483,6 +541,10 @@ async function initSpectrum(parentWindow){
 
 }
 
+/** Converts camillaNode v1 configurations to v2 configurations
+ * Fetches existing v1 configs, transforms them to v2 format, and saves them remotely
+ * @returns {Promise<void>} Promise that resolves when all configurations have been converted
+ */
 async function convertConfigs() {
     // Converts camillaNode v1 configurations to v2 configurations
 
@@ -537,6 +599,11 @@ async function convertConfigs() {
     }
 }
 
+/** Setup interactive plot marker dragging to adjust filter parameters
+ * Updates DSP configuration and UI input fields in real-time during marker drags
+ * Implements throttled plot updates and debounced DSP uploads for performance
+ * @returns {void}
+ */
 function setupPlotInteraction() {
     const canvas = document.getElementById("plotCanvas");
     
@@ -626,8 +693,12 @@ function setupPlotInteraction() {
     });
 }
 
-const { abs, min, max, round } = Math;
-
+/** Convert HSL color values to RGB
+ * @param {number} h - Hue component (0 to 1)
+ * @param {number} s - Saturation component (0 to 1)
+ * @param {number} l - Lightness component (0 to 1)
+ * @returns {number[]} Array containing RGB components [r, g, b] (0 to 255)
+ */
 function hslToRgb(h, s, l) {
     let r, g, b;
   
@@ -641,9 +712,19 @@ function hslToRgb(h, s, l) {
       b = hueToRgb(p, q, h - 1.0/3.0);
     }
   
-    return [round(r * 255), round(g * 255), round(b * 255)];
+    return [
+      Math.round(r * 255),
+      Math.round(g * 255),
+      Math.round(b * 255)
+    ];
   }
   
+  /** Helper function for HSL to RGB conversion
+   * @param {number} p - Temporary value
+   * @param {number} q - Temporary value
+   * @param {number} t - Temporary value
+   * @returns {number} RGB component value (0 to 1)
+   */
   function hueToRgb(p, q, t) {
     if (t < 0) t += 1;
     if (t > 1) t -= 1;
