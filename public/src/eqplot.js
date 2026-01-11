@@ -295,7 +295,7 @@ function createGrid(canvas) {
 }
 
 /**
- * Generate a palette of visually distinct colors based on the number of types
+ * Generate a palette of visually distinct colors based on the number of filter types
  * @param {number} count - Number of colors needed
  * @returns {Array<string>} Array of color hex strings
  */
