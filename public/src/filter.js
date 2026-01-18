@@ -320,22 +320,20 @@ class filter {
                     elem.setAttribute("type","text");                    
                     elem.id=paramName;
 
-                    elem.addEventListener("wheel",function(e){                        
-                        if (this.getAttribute("wheel")=="disabled") return;
-                        
-                        // Normalize id for comparison and guard against NaN
-                        const id = (this.id || "").toLowerCase();
-                        const currentValue = parseFloat(this.value);
+                    // Helper function to apply numeric adjustment
+                    const applyNumericDelta = function(input, dir) {
+                        const id = (input.id || "").toLowerCase();
+                        const currentValue = parseFloat(input.value);
                         if (!Number.isFinite(currentValue)) return;
                         
-                        let dir = e.deltaY> 0 ? 1:-1;
-                        let val; 
-                        if (dir > 0) val = currentValue * 0.1; 
-                        else val = Math.round(10 * currentValue / 11) / 10;
-                        if (val < 1) val = 1;
-                        val = Math.round(val);
+                        let step; 
+                        if (dir > 0) step = currentValue * 0.1; 
+                        else step = Math.round(10 * currentValue / 11) / 10;
+                        if (step < 1) step = 1;
+                        step = Math.round(step);
+                        
                         // Make sure the new value is rounded to 1 decimal place
-                        let newValue = Math.round((currentValue + dir * val )* 10) / 10;
+                        let newValue = Math.round((currentValue + dir * step) * 10) / 10;
 
                         // Q can not be zero - so change it to min 0.1 if it is
                         if (id === "q" && newValue <= 0) newValue = 0.1;
@@ -343,10 +341,87 @@ class filter {
                         // Freq can not be less than 3 - so change it to min 3 if it is
                         if (id === "frequency" && newValue <= 3) newValue = 3;
                         
-                        this.value = newValue;
+                        input.value = newValue;
+                        input.dispatchEvent(new Event("change"));
+                    };
+
+                    elem.addEventListener("wheel",function(e){                        
+                        if (this.getAttribute("wheel")=="disabled") return;
+                        
+                        let dir = e.deltaY > 0 ? 1 : -1;
+                        applyNumericDelta(this, dir);
                         e.preventDefault();
-                        this.dispatchEvent(new Event("change"));
                     })
+
+                    // Drag-to-adjust support
+                    let dragState = null;
+                    const dragThreshold = 4; // pixels to move before entering drag mode
+                    const pixelsPerStep = 10; // pixels per adjustment step
+                    
+                    elem.addEventListener('pointerdown', function(e) {
+                        // Only handle left button
+                        if (e.button !== 0) return;
+                        
+                        dragState = {
+                            startY: e.clientY,
+                            startValue: parseFloat(this.value),
+                            isDragging: false,
+                            lastSteps: 0
+                        };
+                    });
+                    
+                    elem.addEventListener('pointermove', function(e) {
+                        if (!dragState) return;
+                        
+                        const dy = e.clientY - dragState.startY;
+                        
+                        // Check if we've moved enough to enter drag mode
+                        if (!dragState.isDragging && Math.abs(dy) > dragThreshold) {
+                            dragState.isDragging = true;
+                            this.setPointerCapture(e.pointerId);
+                            this.style.cursor = 'pointer';
+                            this.blur(); // Prevent text selection
+                            e.preventDefault();
+                        }
+                        
+                        if (dragState.isDragging) {
+                            const steps = Math.trunc(dy / pixelsPerStep);
+                            
+                            if (steps !== dragState.lastSteps) {
+                                const dir = steps > dragState.lastSteps ? 1 : -1;
+                                const times = Math.abs(steps - dragState.lastSteps);
+                                
+                                for (let i = 0; i < times; i++) {
+                                    applyNumericDelta(this, dir);
+                                }
+                                
+                                dragState.lastSteps = steps;
+                            }
+                            e.preventDefault();
+                        }
+                    });
+                    
+                    elem.addEventListener('pointerup', function(e) {
+                        if (dragState) {
+                            if (dragState.isDragging) {
+                                if (this.hasPointerCapture(e.pointerId)) {
+                                    this.releasePointerCapture(e.pointerId);
+                                }
+                                this.style.cursor = '';
+                            }
+                            dragState = null;
+                        }
+                    });
+                    
+                    elem.addEventListener('pointercancel', function(e) {
+                        if (dragState) {
+                            if (dragState.isDragging && this.hasPointerCapture(e.pointerId)) {
+                                this.releasePointerCapture(e.pointerId);
+                            }
+                            this.style.cursor = '';
+                            dragState = null;
+                        }
+                    });
 
                     elem.addEventListener("dblclick",e=>{e.target.value=0;e.target.dispatchEvent(new Event("change"));});
                     

@@ -106,8 +106,13 @@ Advanced parametric equalizer with visual frequency response.
 - Type the new value
 - Press Enter to apply
 
-**Method 2: Visual Editor**
-- When your mouse hovers over the parameter value use the scroll wheel up and down to adjust the values
+**Method 2: Click+Drag**
+- Click and hold down on any parameter value
+- Drag your mouse pointer up or down to adjust value
+
+**Method 3: Hover+Scroll**
+- However over any parameter value
+- Scroll your mouse wheel up or down to adjust value
 
 ---
 #### Tools

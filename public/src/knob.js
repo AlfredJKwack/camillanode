@@ -82,6 +82,64 @@ class EQKnob {
             e.preventDefault();
         })
 
+        // Drag-to-adjust support
+        let dragState = null;
+        const pixelsPerStep = 8; // pixels of drag per 10-degree step
+        
+        knobHead.addEventListener('pointerdown', function(e) {
+            // Only handle left button
+            if (e.button !== 0) return;
+            
+            const dot = knobHead.children[0];
+            dragState = {
+                startY: e.clientY,
+                startVal: parseInt(dot.getAttribute("val")),
+                lastSteps: 0
+            };
+            
+            knobHead.setPointerCapture(e.pointerId);
+            knobHead.style.cursor = 'ns-resize';
+        });
+        
+        knobHead.addEventListener('pointermove', function(e) {
+            if (!dragState) return;
+            
+            const dy = dragState.startY - e.clientY;
+            const steps = Math.trunc(dy / pixelsPerStep);
+            
+            if (steps !== dragState.lastSteps) {
+                const dot = knobHead.children[0];
+                let newVal = dragState.startVal + steps * 10;
+                
+                // Clamp to valid range
+                if (newVal < 31) newVal = 31;
+                if (newVal > 331) newVal = 331;
+                
+                dot.setAttribute("val", newVal);
+                dragState.lastSteps = steps;
+            }
+        });
+        
+        knobHead.addEventListener('pointerup', function(e) {
+            if (dragState) {
+                dragState = null;
+                knobHead.style.cursor = '';
+                if (knobHead.hasPointerCapture(e.pointerId)) {
+                    knobHead.releasePointerCapture(e.pointerId);
+                }
+            }
+        });
+        
+        knobHead.addEventListener('pointercancel', function(e) {
+            if (dragState) {
+                dragState = null;
+                knobHead.style.cursor = '';
+                if (knobHead.hasPointerCapture(e.pointerId)) {
+                    knobHead.releasePointerCapture(e.pointerId);
+                }
+            }
+        });
+
         // reset on double click
         knobHead.addEventListener('dblclick',function(e){
             const dot=this.children[0];
