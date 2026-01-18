@@ -97,6 +97,27 @@
 
     .node[data-type="filter"] {
         border-color: hsl(280, 50%, 40%);
+        cursor: grab;
+    }
+
+    .node[data-type="filter"]:active {
+        cursor: grabbing;
+    }
+
+    /* Drag-and-drop visual feedback */
+    .node.dragging {
+        opacity: 0.5;
+        cursor: grabbing;
+    }
+
+    .node.drag-over-left {
+        border-left: 4px solid hsl(120, 70%, 50%);
+        border-left-style: solid;
+    }
+
+    .node.drag-over-right {
+        border-right: 4px solid hsl(120, 70%, 50%);
+        border-right-style: solid;
     }
 
     /* Node header */
@@ -109,6 +130,7 @@
         text-transform: uppercase;
         letter-spacing: 0.5px;
         color: hsl(var(--bck-hue), 30%, 70%);
+        pointer-events: none;
     }
 
     /* Node content */
@@ -119,6 +141,7 @@
         display: flex;
         flex-direction: column;
         gap: 2px;
+        pointer-events: none;
     }
 
     .nodeDetail {
@@ -126,11 +149,13 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        pointer-events: none;
     }
 
     .nodeDetail.small {
         font-size: 10px;
         color: hsl(var(--bck-hue), 20%, 60%);
+        pointer-events: none;
     }
 
     /* Connectors */
@@ -148,12 +173,14 @@
         left: -5px;
         background-color: hsl(200, 70%, 60%);
         border: 2px solid hsl(200, 70%, 40%);
+        pointer-events: none;
     }
 
     .connector.right {
         right: -5px;
         background-color: hsl(30, 70%, 60%);
         border: 2px solid hsl(30, 70%, 40%);
+        pointer-events: none;
     }
 
     /* Wire (connection line) */

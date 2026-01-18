@@ -6,6 +6,8 @@
 let DSP;
 let selectedNode = undefined;
 let selectedContextNode = undefined;
+let draggedNode = undefined;
+let draggedOverNode = undefined;
 let lanes = [];
 
 const nodeWidth = 120;
@@ -152,6 +154,7 @@ function createNode(component, channelNo, xPos) {
     // Add event handlers for filter nodes
     if (component.type === 'filter') {
         node.style.cursor = 'pointer';
+        node.setAttribute('draggable', 'true');
         
         // Left click to edit
         node.addEventListener('click', (e) => {
@@ -166,6 +169,14 @@ function createNode(component, channelNo, xPos) {
             e.stopPropagation();
             showNodeContextMenu(node, e.clientX, e.clientY);
         });
+        
+        // Drag-and-drop handlers
+        node.addEventListener('dragstart', onDragStart);
+        node.addEventListener('dragend', onDragEnd);
+        node.addEventListener('dragover', onDragOver);
+        node.addEventListener('drop', onDrop);
+        node.addEventListener('dragenter', onDragEnter);
+        node.addEventListener('dragleave', onDragLeave);
     }
     
     // Add context menu for mixer nodes (add-only)
@@ -542,4 +553,178 @@ export async function addFilterToChannel(channelNo) {
         console.error('Error adding filter:', error);
         alert('Error adding filter: ' + error.message);
     }
+}
+
+/**
+ * Drag-and-drop handlers for filter reordering
+ */
+
+function onDragStart(e) {
+    draggedNode = e.currentTarget;
+    e.currentTarget.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', e.currentTarget.innerHTML);
+    
+    console.log('Drag start:', draggedNode.getAttribute('data-filter-name'));
+}
+
+function onDragEnd(e) {
+    e.currentTarget.classList.remove('dragging');
+    
+    // Remove all drop zone indicators
+    const allNodes = document.querySelectorAll('.node');
+    allNodes.forEach(node => {
+        node.classList.remove('drag-over-left', 'drag-over-right');
+    });
+    
+    draggedNode = undefined;
+    draggedOverNode = undefined;
+}
+
+function onDragOver(e) {
+    if (e.preventDefault) {
+        e.preventDefault();
+    }
+    
+    e.dataTransfer.dropEffect = 'move';
+    
+    const target = e.currentTarget;
+    
+    // Only allow dropping on filter nodes in the same channel
+    if (target.getAttribute('data-type') !== 'filter') return false;
+    if (!draggedNode) return false;
+    
+    const draggedChannel = draggedNode.getAttribute('data-channel');
+    const targetChannel = target.getAttribute('data-channel');
+    
+    if (draggedChannel !== targetChannel) return false;
+    if (target === draggedNode) return false;
+    
+    // Clear previous target's indicators if we switched targets
+    if (draggedOverNode && draggedOverNode !== target) {
+        draggedOverNode.classList.remove('drag-over-left', 'drag-over-right');
+    }
+    
+    draggedOverNode = target;
+    
+    // Determine if we should insert before or after based on position
+    const draggedRect = draggedNode.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    
+    if (draggedRect.left < targetRect.left) {
+        // Dragging from left to right - insert after
+        target.classList.add('drag-over-right');
+        target.classList.remove('drag-over-left');
+    } else {
+        // Dragging from right to left - insert before
+        target.classList.add('drag-over-left');
+        target.classList.remove('drag-over-right');
+    }
+    
+    return false;
+}
+
+function onDragEnter(e) {
+    // onDragOver now handles all indicator logic
+    // This is kept for compatibility but does nothing
+}
+
+function onDragLeave(e) {
+    // Only clear indicators if we're actually leaving the target area
+    // Check if the related target is not a child element
+    const target = e.currentTarget;
+    const relatedTarget = e.relatedTarget;
+    
+    // If relatedTarget is a child of target, we're not really leaving
+    if (relatedTarget && target.contains(relatedTarget)) {
+        return;
+    }
+    
+    // Only clear if we're truly leaving this node
+    if (target === draggedOverNode) {
+        target.classList.remove('drag-over-left', 'drag-over-right');
+        draggedOverNode = undefined;
+    }
+}
+
+async function onDrop(e) {
+    if (e.stopPropagation) {
+        e.stopPropagation();
+    }
+    if (e.preventDefault) {
+        e.preventDefault();
+    }
+    
+    const target = e.currentTarget;
+    
+    // Validate drop
+    if (!draggedNode || target === draggedNode) return;
+    if (target.getAttribute('data-type') !== 'filter') return;
+    
+    const draggedChannel = parseInt(draggedNode.getAttribute('data-channel'));
+    const targetChannel = parseInt(target.getAttribute('data-channel'));
+    
+    if (draggedChannel !== targetChannel) return;
+    
+    try {
+        const draggedFilterName = draggedNode.getAttribute('data-filter-name');
+        const targetFilterName = target.getAttribute('data-filter-name');
+        
+        // Determine insert position
+        const draggedRect = draggedNode.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        const insertAfter = draggedRect.left < targetRect.left;
+        
+        console.log(`Reordering: ${draggedFilterName} ${insertAfter ? 'after' : 'before'} ${targetFilterName}`);
+        
+        // Get current filter list
+        const filterList = DSP.getChannelFiltersList(draggedChannel);
+        const draggedIndex = filterList.indexOf(draggedFilterName);
+        const targetIndex = filterList.indexOf(targetFilterName);
+        
+        if (draggedIndex === -1 || targetIndex === -1) {
+            console.error('Could not find filter indices');
+            return;
+        }
+        
+        // Calculate new index
+        let newIndex;
+        if (insertAfter) {
+            newIndex = targetIndex;
+            // If dragging from left to right, we need to account for removal
+            if (draggedIndex < targetIndex) {
+                newIndex = targetIndex - 1;
+            }
+            newIndex = newIndex + 1;
+        } else {
+            newIndex = targetIndex;
+            // If dragging from right to left, no adjustment needed
+            if (draggedIndex > targetIndex) {
+                // newIndex stays as targetIndex
+            } else {
+                // If dragging from left to left, adjust
+                newIndex = targetIndex;
+            }
+        }
+        
+        // Reorder the list
+        filterList.splice(draggedIndex, 1);
+        filterList.splice(newIndex, 0, draggedFilterName);
+        
+        // Update pipeline
+        const pipe = DSP.config.pipeline.find(p => p.type === "Filter" && p.channel === draggedChannel);
+        if (pipe) {
+            pipe.names = filterList;
+        }
+        
+        await DSP.uploadConfig();
+        await refreshPipeline();
+        
+        console.log(`Reordered ${draggedFilterName} to position ${newIndex}`);
+    } catch (error) {
+        console.error('Error reordering filter:', error);
+        alert('Error reordering filter: ' + error.message);
+    }
+    
+    return false;
 }
