@@ -333,8 +333,9 @@ class filter {
                         if (dir > 0) val = currentValue * 0.1; 
                         else val = Math.round(10 * currentValue / 11) / 10;
                         if (val < 1) val = 1;
-                        val = Math.round(val);          
-                        let newValue = currentValue + dir * val;
+                        val = Math.round(val);
+                        // Make sure the new value is rounded to 1 decimal place
+                        let newValue = Math.round((currentValue + dir * val )* 10) / 10;
 
                         // Q can not be zero - so change it to min 0.1 if it is
                         if (id === "q" && newValue <= 0) newValue = 0.1;
