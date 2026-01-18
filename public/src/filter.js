@@ -322,19 +322,27 @@ class filter {
 
                     elem.addEventListener("wheel",function(e){                        
                         if (this.getAttribute("wheel")=="disabled") return;
+                        
+                        // Normalize id for comparison and guard against NaN
+                        const id = (this.id || "").toLowerCase();
+                        const currentValue = parseFloat(this.value);
+                        if (!Number.isFinite(currentValue)) return;
+                        
                         let dir = e.deltaY> 0 ? 1:-1;
                         let val; 
-                        if (dir>0) val = parseFloat(this.value) * 0.1; else val = Math.round(10*parseFloat(this.value) / 11)/10;
-                        if (val<1) val=1;
-                        val = Math.round(val);                        
-                        this.value = parseFloat(this.value) + dir * val;
+                        if (dir > 0) val = currentValue * 0.1; 
+                        else val = Math.round(10 * currentValue / 11) / 10;
+                        if (val < 1) val = 1;
+                        val = Math.round(val);          
+                        let newValue = currentValue + dir * val;
 
-                        // Q can not be zero - so change it to min 0.2 if it is
-                        if (this.id=="q" && this.value<=0) this.value=0.1;
+                        // Q can not be zero - so change it to min 0.1 if it is
+                        if (id === "q" && newValue <= 0) newValue = 0.1;
 
                         // Freq can not be less than 3 - so change it to min 3 if it is
-                        if (this.id=="frequency" && this.value<=3) this.value=3;
+                        if (id === "frequency" && newValue <= 3) newValue = 3;
                         
+                        this.value = newValue;
                         e.preventDefault();
                         this.dispatchEvent(new Event("change"));
                     })
