@@ -7,7 +7,13 @@
 </head>
 
 <script type="module">
-    import { roomOnLoad } from "/src/room.js"
+    import { roomOnLoad, addFilterAfter, deleteSelectedFilter } from "/src/room.js"
+    import filter from "/src/filter.js"
+    
+    window.filter = filter;
+    window.addFilterAfter = addFilterAfter;
+    window.deleteSelectedFilter = deleteSelectedFilter;
+    
     document.addEventListener("DOMContentLoaded", roomOnLoad);
 </script>
     
@@ -174,11 +180,194 @@
         margin-top: 0;
         color: hsl(0, 60%, 70%);
     }
+
+    /* Modal */
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.7);
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modalContent {
+        background-color: hsl(var(--bck-hue), 25%, 15%);
+        border: 1px solid hsl(var(--bck-hue), 30%, 25%);
+        border-radius: 10px;
+        min-width: 400px;
+        max-width: 600px;
+        max-height: 80vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+
+    .modalHeader {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 20px;
+        background-color: hsl(var(--bck-hue), 30%, 18%);
+        border-bottom: 1px solid hsl(var(--bck-hue), 30%, 25%);
+    }
+
+    .modalHeader h3 {
+        margin: 0;
+        color: hsl(var(--bck-hue), 30%, 75%);
+        font-size: 16px;
+    }
+
+    .closeBtn {
+        background: none;
+        border: none;
+        color: hsl(var(--bck-hue), 30%, 60%);
+        font-size: 28px;
+        cursor: pointer;
+        padding: 0;
+        width: 30px;
+        height: 30px;
+        line-height: 28px;
+        transition: color 0.2s;
+    }
+
+    .closeBtn:hover {
+        color: hsl(var(--bck-hue), 40%, 80%);
+    }
+
+    .modalBody {
+        padding: 20px;
+        overflow-y: auto;
+        flex: 1;
+    }
+
+    /* Filter Editor Panel */
+    .filterEditorPanel {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .editorRow {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .editorRow span {
+        color: hsl(var(--bck-hue), 30%, 70%);
+        font-size: 13px;
+    }
+
+    .editorRow select,
+    .editorRow input {
+        padding: 6px 10px;
+        background-color: hsl(var(--bck-hue), 25%, 20%);
+        border: 1px solid hsl(var(--bck-hue), 30%, 30%);
+        border-radius: 4px;
+        color: hsl(var(--bck-hue), 30%, 80%);
+        font-size: 13px;
+    }
+
+    .editorRow select:focus,
+    .editorRow input:focus {
+        outline: none;
+        border-color: hsl(var(--bck-hue), 50%, 50%);
+    }
+
+    /* Filter parameters styling */
+    #peqParams {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 10px;
+        align-items: center;
+        margin-top: 10px;
+    }
+
+    #peqParams span {
+        color: hsl(var(--bck-hue), 30%, 70%);
+        font-size: 13px;
+    }
+
+    #peqParams input {
+        padding: 6px 10px;
+        background-color: hsl(var(--bck-hue), 25%, 20%);
+        border: 1px solid hsl(var(--bck-hue), 30%, 30%);
+        border-radius: 4px;
+        color: hsl(var(--bck-hue), 30%, 80%);
+        font-size: 13px;
+    }
+
+    #peqParams input:focus {
+        outline: none;
+        border-color: hsl(var(--bck-hue), 50%, 50%);
+    }
+
+    /* Context Menu */
+    .contextMenu {
+        display: none;
+        position: fixed;
+        background-color: hsl(var(--bck-hue), 30%, 20%);
+        border: 1px solid hsl(var(--bck-hue), 30%, 30%);
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        z-index: 1000;
+        min-width: 180px;
+        overflow: hidden;
+    }
+
+    .contextMenuItem {
+        padding: 10px 15px;
+        cursor: pointer;
+        color: hsl(var(--bck-hue), 30%, 75%);
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        transition: background-color 0.2s;
+    }
+
+    .contextMenuItem:hover {
+        background-color: hsl(var(--bck-hue), 35%, 25%);
+    }
+
+    .icon-small {
+        width: 16px;
+        height: 16px;
+        filter: brightness(0.9);
+    }
 </style>
 
 <body>
     <div id="sectionMainTitle"><img src="img/icon/room.png" class="icon">Room EQ - Pipeline Editor</div>
     <div id="editor"></div>
+
+    <!-- Filter Editor Modal -->
+    <div id="filterEditorModal" class="modal">
+        <div class="modalContent">
+            <div class="modalHeader">
+                <h3 id="modalTitle">Edit Filter</h3>
+                <button id="closeFilterEditor" class="closeBtn">&times;</button>
+            </div>
+            <div id="filterEditorContent" class="modalBody"></div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="nodeContextMenu" class="contextMenu">
+        <div class="contextMenuItem" onclick="window.addFilterAfter()">
+            <img src="/img/icon/add.png" class="icon-small">Add Filter After
+        </div>
+        <div id="ctxDelete" class="contextMenuItem" onclick="window.deleteSelectedFilter()">
+            <img src="/img/icon/delete.png" class="icon-small">Delete Filter
+        </div>
+    </div>
 
 </body>
 

@@ -1,10 +1,11 @@
 /**
  * Room EQ - Visual Pipeline Editor
- * MVP 1: Read-only multi-lane visualizer with wires
+ * MVP 2: Filter editing (add/edit/delete)
  */
 
 let DSP;
 let selectedNode = undefined;
+let selectedContextNode = undefined;
 let lanes = [];
 
 const nodeWidth = 120;
@@ -115,6 +116,14 @@ function createNode(component, channelNo, xPos) {
     node.style.width = nodeWidth + 'px';
     node.style.height = nodeHeight + 'px';
     
+    // Store filter name if it's a filter node
+    if (component.type === 'filter') {
+        const filterName = Object.keys(component).find(k => k !== 'type');
+        if (filterName) {
+            node.setAttribute('data-filter-name', filterName);
+        }
+    }
+    
     // Node header
     const header = document.createElement('div');
     header.className = 'nodeHeader';
@@ -138,6 +147,36 @@ function createNode(component, channelNo, xPos) {
         const connectorRight = document.createElement('div');
         connectorRight.className = 'connector right';
         node.appendChild(connectorRight);
+    }
+    
+    // Add event handlers for filter nodes
+    if (component.type === 'filter') {
+        node.style.cursor = 'pointer';
+        
+        // Left click to edit
+        node.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const filterName = node.getAttribute('data-filter-name');
+            openFilterEditor(filterName, channelNo);
+        });
+        
+        // Right click for context menu
+        node.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            showNodeContextMenu(node, e.clientX, e.clientY);
+        });
+    }
+    
+    // Add context menu for mixer nodes (add-only)
+    if (component.type === 'mixer') {
+        node.style.cursor = 'context-menu';
+        
+        node.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            showNodeContextMenu(node, e.clientX, e.clientY);
+        });
     }
     
     return node;
@@ -268,4 +307,239 @@ function showError(message) {
 export async function refreshPipeline() {
     await DSP.downloadConfig();
     await renderPipeline();
+}
+
+/**
+ * Open filter editor for a filter node
+ */
+function openFilterEditor(filterName, channelNo) {
+    if (!filterName) return;
+    
+    console.log(`Opening filter editor for: ${filterName} on channel ${channelNo}`);
+    
+    const modal = document.getElementById('filterEditorModal');
+    const modalTitle = document.getElementById('modalTitle');
+    const filterEditorContent = document.getElementById('filterEditorContent');
+    
+    if (!modal || !modalTitle || !filterEditorContent) {
+        console.error('Room EQ: Filter editor modal elements not found');
+        return;
+    }
+    
+    // Clear previous content
+    filterEditorContent.innerHTML = '';
+    modalTitle.textContent = `Edit Filter: ${filterName}`;
+    
+    // Create filter instance and load from DSP
+    const filterInstance = new window.filter(DSP);
+    filterInstance.loadFromDSP(filterName);
+    filterInstance.createElementCollection(false);
+    
+    // Build editor UI
+    const editorDiv = document.createElement('div');
+    editorDiv.className = 'filterEditorPanel';
+    
+    // Filter type
+    const typeRow = document.createElement('div');
+    typeRow.className = 'editorRow';
+    const typeLabel = document.createElement('span');
+    typeLabel.textContent = 'Filter Type:';
+    typeRow.appendChild(typeLabel);
+    typeRow.appendChild(filterInstance.elementCollection.filterType);
+    editorDiv.appendChild(typeRow);
+    
+    // Filter subtype (if applicable)
+    if (filterInstance.elementCollection.filterSubType.childNodes.length > 0) {
+        const subTypeRow = document.createElement('div');
+        subTypeRow.className = 'editorRow';
+        const subTypeLabel = document.createElement('span');
+        subTypeLabel.textContent = 'Sub Type:';
+        subTypeRow.appendChild(subTypeLabel);
+        subTypeRow.appendChild(filterInstance.elementCollection.filterSubType);
+        editorDiv.appendChild(subTypeRow);
+    }
+    
+    // Parameters
+    editorDiv.appendChild(filterInstance.elementCollection.peqParams);
+    
+    // Add to modal
+    filterEditorContent.appendChild(editorDiv);
+    
+    // Setup close handlers
+    const closeBtn = document.getElementById('closeFilterEditor');
+    const closeHandler = async () => {
+        modal.style.display = 'none';
+        await DSP.uploadConfig();
+        await refreshPipeline();
+        closeBtn.removeEventListener('click', closeHandler);
+    };
+    closeBtn.addEventListener('click', closeHandler);
+    
+    // Close on outside click
+    modal.addEventListener('click', function outsideClickHandler(e) {
+        if (e.target === modal) {
+            closeHandler();
+            modal.removeEventListener('click', outsideClickHandler);
+        }
+    });
+    
+    // Show modal
+    modal.style.display = 'flex';
+}
+
+/**
+ * Show context menu for node operations
+ */
+function showNodeContextMenu(node, x, y) {
+    const contextMenu = document.getElementById('nodeContextMenu');
+    if (!contextMenu) return;
+    
+    selectedContextNode = node;
+    
+    // Show/hide menu items based on node type
+    const nodeType = node.getAttribute('data-type');
+    const deleteItem = document.getElementById('ctxDelete');
+    
+    if (deleteItem) {
+        // Only show delete for filter nodes
+        deleteItem.style.display = nodeType === 'filter' ? 'flex' : 'none';
+    }
+    
+    // Position context menu
+    contextMenu.style.left = x + 'px';
+    contextMenu.style.top = y + 'px';
+    contextMenu.style.display = 'block';
+    
+    // Close on outside click
+    const closeHandler = (e) => {
+        if (!contextMenu.contains(e.target)) {
+            contextMenu.style.display = 'none';
+            document.removeEventListener('click', closeHandler);
+        }
+    };
+    
+    setTimeout(() => {
+        document.addEventListener('click', closeHandler);
+    }, 0);
+}
+
+/**
+ * Add a new filter after the selected node
+ */
+export async function addFilterAfter() {
+    if (!selectedContextNode) return;
+    
+    const channelNo = parseInt(selectedContextNode.getAttribute('data-channel'));
+    const nodeType = selectedContextNode.getAttribute('data-type');
+    const contextMenu = document.getElementById('nodeContextMenu');
+    contextMenu.style.display = 'none';
+    
+    try {
+        // Create a new default filter
+        const timestamp = Date.now().toString().substring(8);
+        const filterName = `Filter_${timestamp}`;
+        
+        const newFilter = new window.filter(DSP);
+        newFilter.setName(filterName);
+        
+        // Determine insertion position
+        let insertIndex;
+        const filterList = DSP.getChannelFiltersList(channelNo);
+        
+        if (nodeType === 'mixer') {
+            // Insert at beginning (right after mixer)
+            insertIndex = 0;
+        } else if (nodeType === 'filter') {
+            // Insert after the clicked filter
+            const currentFilterName = selectedContextNode.getAttribute('data-filter-name');
+            insertIndex = filterList.indexOf(currentFilterName) + 1;
+        } else {
+            console.error('Cannot add filter after node type:', nodeType);
+            return;
+        }
+        
+        // Add filter to DSP
+        newFilter.loadToDSP(channelNo);
+        
+        // Reorder to insert at correct position
+        const updatedFilterList = DSP.getChannelFiltersList(channelNo);
+        const newFilterIndex = updatedFilterList.indexOf(filterName);
+        
+        if (newFilterIndex !== insertIndex) {
+            // Move filter to correct position
+            updatedFilterList.splice(newFilterIndex, 1);
+            updatedFilterList.splice(insertIndex, 0, filterName);
+            
+            // Update pipeline
+            const pipe = DSP.config.pipeline.find(p => p.type === "Filter" && p.channel === channelNo);
+            if (pipe) {
+                pipe.names = updatedFilterList;
+            }
+        }
+        
+        await DSP.uploadConfig();
+        await refreshPipeline();
+        
+        console.log(`Added filter ${filterName} to channel ${channelNo} at position ${insertIndex} (after ${nodeType})`);
+    } catch (error) {
+        console.error('Error adding filter:', error);
+        alert('Error adding filter: ' + error.message);
+    }
+}
+
+/**
+ * Delete the selected filter node
+ */
+export async function deleteSelectedFilter() {
+    if (!selectedContextNode) return;
+    
+    const nodeType = selectedContextNode.getAttribute('data-type');
+    if (nodeType !== 'filter') {
+        console.error('Can only delete filter nodes');
+        return;
+    }
+    
+    const channelNo = parseInt(selectedContextNode.getAttribute('data-channel'));
+    const filterName = selectedContextNode.getAttribute('data-filter-name');
+    const contextMenu = document.getElementById('nodeContextMenu');
+    contextMenu.style.display = 'none';
+    
+    if (!confirm(`Delete filter "${filterName}"?`)) {
+        return;
+    }
+    
+    try {
+        // Remove filter from channel pipeline
+        DSP.removeFilterFromChannelPipeline(filterName, channelNo);
+        
+        await DSP.uploadConfig();
+        await refreshPipeline();
+        
+        console.log(`Deleted filter ${filterName} from channel ${channelNo}`);
+    } catch (error) {
+        console.error('Error deleting filter:', error);
+        alert('Error deleting filter: ' + error.message);
+    }
+}
+
+/**
+ * Add a new filter to the beginning of a channel
+ */
+export async function addFilterToChannel(channelNo) {
+    try {
+        const timestamp = Date.now().toString().substring(8);
+        const filterName = `Filter_${timestamp}`;
+        
+        const newFilter = new window.filter(DSP);
+        newFilter.setName(filterName);
+        newFilter.loadToDSP(channelNo);
+        
+        await DSP.uploadConfig();
+        await refreshPipeline();
+        
+        console.log(`Added filter ${filterName} to channel ${channelNo}`);
+    } catch (error) {
+        console.error('Error adding filter:', error);
+        alert('Error adding filter: ' + error.message);
+    }
 }
